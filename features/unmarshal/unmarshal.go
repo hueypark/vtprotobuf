@@ -16,6 +16,10 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+const (
+	runtimePackage = protogen.GoImportPath("runtime")
+)
+
 func init() {
 	generator.RegisterFeature("unmarshal", func(gen *generator.GeneratedFile) generator.FeatureGenerator {
 		return &unmarshal{GeneratedFile: gen}
@@ -575,22 +579,46 @@ func (p *unmarshal) fieldItem(field *protogen.Field, fieldname string, message *
 		} else if repeated {
 			if p.ShouldPool(message) {
 				p.P(`if len(m.`, fieldname, `) == cap(m.`, fieldname, `) {`)
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				if p.ShouldPool(field.Message) {
+					p.P(`v := `, field.Message.GoIdent, `FromVTPool()`)
+					p.P(runtimePackage.Ident("SetFinalizer"), `(v, func(v *`, field.Message.GoIdent, `) {`)
+					p.P(`	v.ReturnToVTPool()`)
+					p.P(`})`)
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+				} else {
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				}
 				p.P(`} else {`)
 				p.P(`m.`, fieldname, ` = m.`, fieldname, `[:len(m.`, fieldname, `) + 1]`)
 				p.P(`if m.`, fieldname, `[len(m.`, fieldname, `) - 1] == nil {`)
-				p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
+				if p.ShouldPool(field.Message) {
+					p.P(`v := `, field.Message.GoIdent, `FromVTPool()`)
+					p.P(runtimePackage.Ident("SetFinalizer"), `(v, func(v *`, field.Message.GoIdent, `) {`)
+					p.P(`	v.ReturnToVTPool()`)
+					p.P(`})`)
+					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = v`)
+				} else {
+					p.P(`m.`, fieldname, `[len(m.`, fieldname, `) - 1] = &`, field.Message.GoIdent, `{}`)
+				}
 				p.P(`}`)
 				p.P(`}`)
 			} else {
-				p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				if p.ShouldPool(field.Message) {
+					p.P(`v := `, field.Message.GoIdent, `FromVTPool()`)
+					p.P(runtimePackage.Ident("SetFinalizer"), `(v, func(v *`, field.Message.GoIdent, `) {`)
+					p.P(`	v.ReturnToVTPool()`)
+					p.P(`})`)
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, v)`)
+				} else {
+					p.P(`m.`, fieldname, ` = append(m.`, fieldname, `, &`, field.Message.GoIdent, `{})`)
+				}
 			}
 			varname := fmt.Sprintf("m.%s[len(m.%s) - 1]", fieldname, fieldname)
 			buf := `dAtA[iNdEx:postIndex]`
 			p.decodeMessage(varname, buf, field.Message)
 		} else {
 			p.P(`if m.`, fieldname, ` == nil {`)
-			if p.ShouldPool(message) && p.ShouldPool(field.Message) {
+			if p.ShouldPool(field.Message) {
 				p.P(`m.`, fieldname, ` = `, field.Message.GoIdent, `FromVTPool()`)
 			} else {
 				p.P(`m.`, fieldname, ` = &`, field.Message.GoIdent, `{}`)
